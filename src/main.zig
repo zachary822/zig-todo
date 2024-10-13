@@ -3,6 +3,10 @@ const c = @cImport({
     @cInclude("raylib.h");
     @cInclude("raygui.h");
     @cInclude("sqlite3.h");
+
+    @cInclude("string.h");
+    @cInclude("stdlib.h");
+    @cInclude("bluish/style_bluish.h");
 });
 
 const Todo = struct {
@@ -211,7 +215,8 @@ pub fn main() !void {
     defer c.CloseWindow();
 
     c.SetTargetFPS(60);
-    c.GuiLoadStyle("style_bluish.rgs");
+
+    c.GuiLoadStyleBluish();
 
     var refresh = false;
 

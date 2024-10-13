@@ -52,6 +52,7 @@ pub fn build(b: *std.Build) void {
 
     exe.linkLibrary(raylib);
     exe.addIncludePath(rayguiDep.path("src"));
+    exe.addIncludePath(rayguiDep.path("styles"));
     exe.addCSourceFile(.{ .file = b.path("./raygui_impl.c") });
 
     exe.linkSystemLibrary("sqlite3");
