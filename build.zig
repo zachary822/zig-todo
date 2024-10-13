@@ -24,6 +24,9 @@ pub fn build(b: *std.Build) void {
         .optimize = optimize,
     });
 
+    lib.linkLibC();
+    lib.linkSystemLibrary("sqlite3");
+
     // This declares intent for the library to be installed into the standard
     // location when the user invokes the "install" step (the default step when
     // running `zig build`).
@@ -92,6 +95,9 @@ pub fn build(b: *std.Build) void {
         .target = target,
         .optimize = optimize,
     });
+
+    lib_unit_tests.linkLibC();
+    lib_unit_tests.linkSystemLibrary("sqlite3");
 
     const run_lib_unit_tests = b.addRunArtifact(lib_unit_tests);
 
