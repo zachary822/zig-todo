@@ -73,12 +73,13 @@ pub fn main() !void {
             }
         }
 
-        if (!editMode and c.IsKeyPressed(c.KEY_ENTER)) {
+        if (c.IsKeyPressed(c.KEY_ENTER)) {
             const msg = std.mem.sliceTo(&input, 0);
             if (msg.len > 0) {
                 try db.addTodo(msg);
                 @memset(&input, 0);
                 refresh = true;
+                editMode = true;
             }
         }
 
