@@ -27,7 +27,7 @@ pub fn main() !void {
     _ = try db.getTodos();
 
     c.SetConfigFlags(c.FLAG_WINDOW_RESIZABLE | c.FLAG_VSYNC_HINT);
-    c.InitWindow(screenWidth, screenHight, "Hello world!");
+    c.InitWindow(screenWidth, screenHight, "Todo App");
     defer c.CloseWindow();
 
     c.SetTargetFPS(60);
