@@ -16,8 +16,8 @@ pub fn main() !void {
     const allocator = std.heap.c_allocator;
     std.debug.print("sqlite3 version: {s}\n", .{c.sqlite3_version});
 
-    const screenWidth = 1024;
-    const screenHight = 768;
+    const screenWidth = 800;
+    const screenHight = 600;
 
     var db = try DB.init(allocator, "todo.db");
     defer db.deinit();
@@ -41,6 +41,37 @@ pub fn main() !void {
     @memset(&input, 0);
 
     while (!c.WindowShouldClose()) {
+        if (c.IsFileDropped()) {
+            var arena = std.heap.ArenaAllocator.init(allocator);
+            defer arena.deinit();
+            const alloc = arena.allocator();
+
+            const dropped_files = c.LoadDroppedFiles();
+            defer c.UnloadDroppedFiles(dropped_files);
+
+            for (dropped_files.paths[0..dropped_files.count]) |file_path| {
+                const file = try std.fs.openFileAbsolute(std.mem.sliceTo(file_path, 0), .{});
+                defer file.close();
+
+                var buf_reader = std.io.bufferedReader(file.reader());
+                const reader = buf_reader.reader();
+
+                var lines = std.ArrayList([:0]u8).init(alloc);
+
+                while (try reader.readUntilDelimiterOrEofAlloc(alloc, '\n', 200)) |line| {
+                    const trimmed = std.mem.trim(u8, line, " \n");
+                    if (trimmed.len == 0) {
+                        continue;
+                    }
+                    try lines.append(try alloc.dupeZ(u8, line));
+                }
+
+                try db.addTodos(lines.items);
+            }
+
+            refresh = true;
+        }
+
         if (refresh) {
             db.clearTodos();
             _ = try db.getTodos();
@@ -59,7 +90,6 @@ pub fn main() !void {
         );
 
         c.GuiSetStyle(c.DEFAULT, c.TEXT_SIZE, 24);
-
         if (c.GuiTextBox(.{ .x = 5, .y = 65, .width = 500, .height = 30 }, &input, 200, editMode) > 0) {
             editMode = !editMode;
         }

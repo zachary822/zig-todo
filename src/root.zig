@@ -90,7 +90,7 @@ pub const DB = struct {
 
         var rc = c.sqlite3_step(prepared);
 
-        while (rc == c.SQLITE_ROW) {
+        while (rc == c.SQLITE_ROW) : (rc = c.sqlite3_step(prepared)) {
             const id = c.sqlite3_column_int(prepared, 0);
 
             const c_desc = c.sqlite3_column_text(prepared, 1);
@@ -107,8 +107,6 @@ pub const DB = struct {
                 .description = desc,
                 .completed_at = completed_at,
             });
-
-            rc = c.sqlite3_step(prepared);
         }
 
         if (rc != c.SQLITE_DONE) {
@@ -145,6 +143,38 @@ pub const DB = struct {
             \\ delete from todo where id = ?;
         ;
         try self.query(stmt, .{todo.id});
+    }
+
+    pub fn addTodos(self: Self, todos: [][:0]u8) !void {
+        try self.exec("BEGIN;");
+        errdefer self.exec("ROLLBACK;") catch {};
+
+        const stmt =
+            \\ insert into todo (description) values (?);
+        ;
+
+        var prepared: ?*c.sqlite3_stmt = undefined;
+        _ = c.sqlite3_prepare_v2(self.db, stmt, @intCast(stmt.len + 1), &prepared, null);
+        defer _ = c.sqlite3_finalize(prepared);
+
+        for (todos) |todo| {
+            const err = c.sqlite3_bind_text(prepared, 1, todo, @intCast(todo.len), c.SQLITE_STATIC);
+            defer _ = c.sqlite3_reset(prepared);
+
+            if (err != c.SQLITE_OK) {
+                return SqliteError.BindError;
+            }
+
+            var rc = c.sqlite3_step(prepared);
+
+            while (rc == c.SQLITE_ROW) : (rc = c.sqlite3_step(prepared)) {}
+
+            if (rc != c.SQLITE_DONE) {
+                return SqliteError.StepError;
+            }
+        }
+
+        try self.exec("COMMIT;");
     }
 
     pub fn query(self: Self, stmt: [:0]const u8, args: anytype) !void {
@@ -189,9 +219,7 @@ pub const DB = struct {
 
         var rc = c.sqlite3_step(prepared);
 
-        while (rc == c.SQLITE_ROW) {
-            rc = c.sqlite3_step(prepared);
-        }
+        while (rc == c.SQLITE_ROW) : (rc = c.sqlite3_step(prepared)) {}
 
         if (rc != c.SQLITE_DONE) {
             return SqliteError.StepError;
