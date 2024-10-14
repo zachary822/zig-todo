@@ -128,13 +128,7 @@ pub fn main() !void {
             }
         }
 
-        _ = c.GuiScrollPanel(
-            panelRec,
-            null,
-            panelContentRec,
-            &panelScroll,
-            &panelView,
-        );
+        _ = c.GuiScrollPanel(panelRec, null, panelContentRec, &panelScroll, &panelView);
 
         {
             c.BeginScissorMode(@intFromFloat(panelView.x), @intFromFloat(panelView.y), @intFromFloat(panelView.width), @intFromFloat(panelView.height));
@@ -146,12 +140,7 @@ pub fn main() !void {
                 var checked = todo.completed_at != null;
 
                 if (c.GuiCheckBox(
-                    .{
-                        .x = x,
-                        .y = y,
-                        .width = 30,
-                        .height = 30,
-                    },
+                    .{ .x = x, .y = y, .width = 30, .height = 30 },
                     @ptrCast(todo.description),
                     &checked,
                 ) > 0) {
