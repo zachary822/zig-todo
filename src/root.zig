@@ -84,7 +84,7 @@ pub const DB = struct {
         const stmt =
             \\ select id, description, datetime(completed_at, 'unixepoch', 'localtime')
             \\ from todo
-            \\ order by id asc, created_at asc
+            \\ order by created_at asc, id asc;
         ;
 
         _ = c.sqlite3_prepare_v2(self.db, stmt, stmt.len + 1, &prepared, null);
