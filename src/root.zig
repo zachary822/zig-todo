@@ -10,6 +10,7 @@ pub const SqliteError = error{
     StepError,
     ExecError,
     BindError,
+    ResetError,
 };
 
 pub const DB = struct {
@@ -161,8 +162,7 @@ pub const DB = struct {
         }
 
         for (todos) |todo| {
-            const err = c.sqlite3_bind_text(prepared, 1, todo, @intCast(todo.len), c.SQLITE_STATIC);
-            defer _ = c.sqlite3_reset(prepared);
+            var err = c.sqlite3_bind_text(prepared, 1, todo, @intCast(todo.len), c.SQLITE_STATIC);
 
             if (err != c.SQLITE_OK) {
                 return SqliteError.BindError;
@@ -174,6 +174,12 @@ pub const DB = struct {
 
             if (rc != c.SQLITE_DONE) {
                 return SqliteError.StepError;
+            }
+
+            err = c.sqlite3_reset(prepared);
+
+            if (err != c.SQLITE_OK) {
+                return SqliteError.ResetError;
             }
         }
     }
@@ -242,4 +248,27 @@ test "can fetch todos" {
     );
 
     _ = try db.getTodos();
+}
+
+test "can add todos" {
+    const allocator = testing.allocator;
+
+    var db = try DB.init(allocator, "test.db");
+    defer std.fs.cwd().deleteFile("test.db") catch {};
+    defer db.deinit();
+
+    try db.migrate();
+
+    var todos: [2][:0]u8 = undefined;
+
+    todos[0] = @constCast("todo 1");
+    todos[1] = @constCast("todo 2 :)");
+
+    try db.addTodos(&todos);
+
+    _ = try db.getTodos();
+
+    for (db.todos.items, 0..) |todo, i| {
+        try testing.expect(std.mem.eql(u8, todos[i], todo.description));
+    }
 }
