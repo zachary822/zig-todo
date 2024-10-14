@@ -19,7 +19,7 @@ pub fn main() !void {
     std.debug.print("sqlite3 version: {s}\n", .{c.sqlite3_version});
 
     const screenWidth = 800;
-    const screenHight = 600;
+    const screenHeight = 600;
 
     var db = try DB.init(allocator, "todo.db");
     defer db.deinit();
@@ -29,7 +29,7 @@ pub fn main() !void {
     _ = try db.getTodos();
 
     c.SetConfigFlags(c.FLAG_WINDOW_RESIZABLE | c.FLAG_VSYNC_HINT);
-    c.InitWindow(screenWidth, screenHight, "Todo App");
+    c.InitWindow(screenWidth, screenHeight, "Todo App");
     defer c.CloseWindow();
 
     c.SetTargetFPS(60);
@@ -96,8 +96,10 @@ pub fn main() !void {
             .x = 0,
             .y = 0,
             .width = @max(ROW_WIDTH, currScreenWidth - @as(f32, @floatFromInt(c.GuiGetStyle(c.LISTVIEW, c.SCROLLBAR_WIDTH))) - 5),
-            .height = @floatFromInt(db.todos.items.len * 35),
+            .height = @as(f32, @floatFromInt(db.todos.items.len * 35)) + 5,
         };
+
+        // Drawing
 
         c.BeginDrawing();
         defer c.EndDrawing();
@@ -144,6 +146,12 @@ pub fn main() !void {
             for (db.todos.items, 0..) |todo, i| {
                 const x = 5 + panelRec.x + panelScroll.x;
                 const y = @as(f32, @floatFromInt(35 * i)) + panelRec.y + panelScroll.y + 5;
+
+                // don't render extra rows
+                if (y > currScreenHeight or y < 65) {
+                    continue;
+                }
+
                 var checked = todo.completed_at != null;
 
                 if (c.GuiCheckBox(
