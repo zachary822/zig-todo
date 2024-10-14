@@ -94,15 +94,12 @@ pub const DB = struct {
             const id = c.sqlite3_column_int(prepared, 0);
 
             const c_desc = c.sqlite3_column_text(prepared, 1);
-            const desc = try self.allocator.allocSentinel(u8, std.mem.len(c_desc), 0);
-            std.mem.copyForwards(u8, desc, std.mem.sliceTo(c_desc, 0));
+            const desc = try self.allocator.dupeZ(u8, std.mem.span(c_desc));
 
             const completed = c.sqlite3_column_type(prepared, 2) != c.SQLITE_NULL;
             const completed_at = if (completed) blk: {
                 const c_comp = c.sqlite3_column_text(prepared, 2);
-                const comp = try self.allocator.allocSentinel(u8, std.mem.len(c_comp), 0);
-                std.mem.copyForwards(u8, comp, std.mem.sliceTo(c_comp, 0));
-                break :blk comp;
+                break :blk try self.allocator.dupeZ(u8, std.mem.span(c_comp));
             } else null;
 
             try self.todos.append(.{
@@ -168,11 +165,10 @@ pub const DB = struct {
         _ = c.sqlite3_prepare_v2(self.db, stmt, @intCast(stmt.len + 1), &prepared, null);
         defer _ = c.sqlite3_finalize(prepared);
 
-        comptime var i = 0;
-        inline while (i < fields_info.len) {
-            const value = @field(args, fields_info[i].name);
+        inline for (fields_info, 0..) |info, i| {
+            const value = @field(args, info.name);
 
-            const err = switch (@typeInfo(fields_info[i].type)) {
+            const err = switch (@typeInfo(info.type)) {
                 .ComptimeInt, .Int => c.sqlite3_bind_int64(prepared, i + 1, value),
                 .ComptimeFloat, .Float => c.sqlite3_bind_double(prepared, i + 1, value),
                 .Pointer => |ptr_info| switch (ptr_info.size) {
@@ -189,8 +185,6 @@ pub const DB = struct {
             if (err != c.SQLITE_OK) {
                 return SqliteError.BindError;
             }
-
-            i += 1;
         }
 
         var rc = c.sqlite3_step(prepared);
