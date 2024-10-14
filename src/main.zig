@@ -40,6 +40,13 @@ pub fn main() !void {
     var input: [200:0]u8 = undefined;
     @memset(&input, 0);
 
+    var currScreenWidth: f32 = undefined;
+    var currScreenHeight: f32 = undefined;
+    var panelScroll: c.Vector2 = undefined;
+    var panelView: c.Rectangle = undefined;
+    var panelRec: c.Rectangle = undefined;
+    var panelContentRec: c.Rectangle = undefined;
+
     while (!c.WindowShouldClose()) {
         if (c.IsFileDropped()) {
             var arena = std.heap.ArenaAllocator.init(allocator);
@@ -66,7 +73,9 @@ pub fn main() !void {
                     try lines.append(try alloc.dupeZ(u8, trimmed));
                 }
 
-                try db.addTodos(lines.items);
+                if (lines.items.len > 0) {
+                    try db.addTodos(lines.items);
+                }
             }
 
             refresh = true;
@@ -78,6 +87,12 @@ pub fn main() !void {
             refresh = false;
         }
 
+        currScreenWidth = @floatFromInt(c.GetScreenWidth());
+        currScreenHeight = @floatFromInt(c.GetScreenHeight());
+
+        panelRec = .{ .x = 0, .y = 100, .width = currScreenWidth, .height = currScreenHeight - 100 };
+        panelContentRec = .{ .x = 0, .y = 0, .width = 545, .height = @floatFromInt(db.todos.items.len * 35) };
+
         c.BeginDrawing();
         defer c.EndDrawing();
 
@@ -85,7 +100,7 @@ pub fn main() !void {
 
         c.GuiSetStyle(c.DEFAULT, c.TEXT_SIZE, 48);
         _ = c.GuiStatusBar(
-            .{ .x = 0, .y = 0, .width = @floatFromInt(c.GetScreenWidth()), .height = 60 },
+            .{ .x = 0, .y = 0, .width = currScreenWidth, .height = 60 },
             "Todo App",
         );
 
@@ -113,31 +128,45 @@ pub fn main() !void {
             }
         }
 
-        for (db.todos.items, 0..) |todo, i| {
-            const y: f32 = @floatFromInt(35 * i + 100);
-            var checked = todo.completed_at != null;
+        _ = c.GuiScrollPanel(
+            panelRec,
+            null,
+            panelContentRec,
+            &panelScroll,
+            &panelView,
+        );
 
-            if (c.GuiCheckBox(
-                .{
-                    .x = 5,
-                    .y = y,
-                    .width = 30,
-                    .height = 30,
-                },
-                @ptrCast(todo.description),
-                &checked,
-            ) > 0) {
-                if (checked) {
-                    try db.completeTodo(todo);
-                } else {
-                    try db.uncompleteTodo(todo);
+        {
+            c.BeginScissorMode(@intFromFloat(panelView.x), @intFromFloat(panelView.y), @intFromFloat(panelView.width), @intFromFloat(panelView.height));
+            defer c.EndScissorMode();
+
+            for (db.todos.items, 0..) |todo, i| {
+                const x = 5 + panelRec.x + panelScroll.x;
+                const y = @as(f32, @floatFromInt(35 * i)) + panelRec.y + panelScroll.y + 5;
+                var checked = todo.completed_at != null;
+
+                if (c.GuiCheckBox(
+                    .{
+                        .x = x,
+                        .y = y,
+                        .width = 30,
+                        .height = 30,
+                    },
+                    @ptrCast(todo.description),
+                    &checked,
+                ) > 0) {
+                    if (checked) {
+                        try db.completeTodo(todo);
+                    } else {
+                        try db.uncompleteTodo(todo);
+                    }
+                    refresh = true;
                 }
-                refresh = true;
-            }
 
-            if (c.GuiButton(.{ .x = 510, .y = y, .width = 30, .height = 30 }, "#143#") > 0) {
-                try db.deleteTodo(todo);
-                refresh = true;
+                if (c.GuiButton(.{ .x = x + 505, .y = y, .width = 30, .height = 30 }, "#143#") > 0) {
+                    try db.deleteTodo(todo);
+                    refresh = true;
+                }
             }
         }
 

@@ -11,6 +11,7 @@ pub const SqliteError = error{
     ExecError,
     BindError,
     ResetError,
+    PrepareError,
 };
 
 pub const DB = struct {
@@ -154,34 +155,38 @@ pub const DB = struct {
             \\ insert into todo (description) values (?);
         ;
 
-        var prepared: ?*c.sqlite3_stmt = undefined;
-        _ = c.sqlite3_prepare_v2(self.db, stmt, @intCast(stmt.len + 1), &prepared, null);
-        defer {
-            _ = c.sqlite3_finalize(prepared);
-            self.exec("COMMIT;") catch {};
+        {
+            var prepared: ?*c.sqlite3_stmt = undefined;
+            var err = c.sqlite3_prepare_v2(self.db, stmt, @intCast(stmt.len + 1), &prepared, null);
+            defer _ = c.sqlite3_finalize(prepared);
+            if (err != c.SQLITE_OK) {
+                return SqliteError.PrepareError;
+            }
+
+            for (todos) |todo| {
+                err = c.sqlite3_bind_text(prepared, 1, todo, @intCast(todo.len), c.SQLITE_STATIC);
+
+                if (err != c.SQLITE_OK) {
+                    return SqliteError.BindError;
+                }
+
+                var rc = c.sqlite3_step(prepared);
+
+                while (rc == c.SQLITE_ROW) : (rc = c.sqlite3_step(prepared)) {}
+
+                if (rc != c.SQLITE_DONE) {
+                    return SqliteError.StepError;
+                }
+
+                err = c.sqlite3_reset(prepared);
+
+                if (err != c.SQLITE_OK) {
+                    return SqliteError.ResetError;
+                }
+            }
         }
 
-        for (todos) |todo| {
-            var err = c.sqlite3_bind_text(prepared, 1, todo, @intCast(todo.len), c.SQLITE_STATIC);
-
-            if (err != c.SQLITE_OK) {
-                return SqliteError.BindError;
-            }
-
-            var rc = c.sqlite3_step(prepared);
-
-            while (rc == c.SQLITE_ROW) : (rc = c.sqlite3_step(prepared)) {}
-
-            if (rc != c.SQLITE_DONE) {
-                return SqliteError.StepError;
-            }
-
-            err = c.sqlite3_reset(prepared);
-
-            if (err != c.SQLITE_OK) {
-                return SqliteError.ResetError;
-            }
-        }
+        try self.exec("COMMIT;");
     }
 
     pub fn query(self: Self, stmt: [:0]const u8, args: anytype) !void {
