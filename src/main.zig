@@ -59,7 +59,7 @@ pub fn main() !void {
             defer c.UnloadDroppedFiles(dropped_files);
 
             for (dropped_files.paths[0..dropped_files.count]) |file_path| {
-                const file = try std.fs.openFileAbsolute(std.mem.sliceTo(file_path, 0), .{});
+                const file = try std.fs.openFileAbsolute(std.mem.span(file_path), .{});
                 defer file.close();
 
                 var buf_reader = std.io.bufferedReader(file.reader());
@@ -77,10 +77,9 @@ pub fn main() !void {
 
                 if (lines.items.len > 0) {
                     try db.addTodos(lines.items);
+                    refresh = true;
                 }
             }
-
-            refresh = true;
         }
 
         if (refresh) {
@@ -122,6 +121,7 @@ pub fn main() !void {
                 try db.addTodo(msg);
                 @memset(&input, 0);
                 refresh = true;
+                editMode = true;
             }
         }
 
