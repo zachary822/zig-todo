@@ -10,6 +10,8 @@ const c = @cImport({
 });
 const root = @import("root.zig");
 
+const ROW_WIDTH = 545;
+
 const DB = root.DB;
 
 pub fn main() !void {
@@ -91,7 +93,12 @@ pub fn main() !void {
         currScreenHeight = @floatFromInt(c.GetScreenHeight());
 
         panelRec = .{ .x = 0, .y = 100, .width = currScreenWidth, .height = currScreenHeight - 100 };
-        panelContentRec = .{ .x = 0, .y = 0, .width = 545, .height = @floatFromInt(db.todos.items.len * 35) };
+        panelContentRec = .{
+            .x = 0,
+            .y = 0,
+            .width = @max(ROW_WIDTH, currScreenWidth - @as(f32, @floatFromInt(c.GuiGetStyle(c.LISTVIEW, c.SCROLLBAR_WIDTH))) - 5),
+            .height = @floatFromInt(db.todos.items.len * 35),
+        };
 
         c.BeginDrawing();
         defer c.EndDrawing();

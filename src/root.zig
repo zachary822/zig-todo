@@ -183,6 +183,8 @@ pub const DB = struct {
                 if (err != c.SQLITE_OK) {
                     return SqliteError.ResetError;
                 }
+
+                _ = c.sqlite3_clear_bindings(prepared);
             }
         }
 
