@@ -58,12 +58,12 @@ pub fn main() !void {
 
                 var lines = std.ArrayList([:0]u8).init(alloc);
 
-                while (try reader.readUntilDelimiterOrEofAlloc(alloc, '\n', 200)) |line| {
+                while (try reader.readUntilDelimiterOrEofAlloc(alloc, '\n', 1024)) |line| {
                     const trimmed = std.mem.trim(u8, line, " \n");
                     if (trimmed.len == 0) {
                         continue;
                     }
-                    try lines.append(try alloc.dupeZ(u8, line));
+                    try lines.append(try alloc.dupeZ(u8, trimmed));
                 }
 
                 try db.addTodos(lines.items);

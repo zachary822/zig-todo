@@ -155,7 +155,10 @@ pub const DB = struct {
 
         var prepared: ?*c.sqlite3_stmt = undefined;
         _ = c.sqlite3_prepare_v2(self.db, stmt, @intCast(stmt.len + 1), &prepared, null);
-        defer _ = c.sqlite3_finalize(prepared);
+        defer {
+            _ = c.sqlite3_finalize(prepared);
+            self.exec("COMMIT;") catch {};
+        }
 
         for (todos) |todo| {
             const err = c.sqlite3_bind_text(prepared, 1, todo, @intCast(todo.len), c.SQLITE_STATIC);
@@ -173,8 +176,6 @@ pub const DB = struct {
                 return SqliteError.StepError;
             }
         }
-
-        try self.exec("COMMIT;");
     }
 
     pub fn query(self: Self, stmt: [:0]const u8, args: anytype) !void {
