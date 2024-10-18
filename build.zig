@@ -15,23 +15,6 @@ pub fn build(b: *std.Build) void {
     // set a preferred release mode, allowing the user to decide how to optimize.
     const optimize = b.standardOptimizeOption(.{});
 
-    const lib = b.addStaticLibrary(.{
-        .name = "zig-todo",
-        // In this case the main source file is merely a path, however, in more
-        // complicated build scripts, this could be a generated file.
-        .root_source_file = b.path("src/root.zig"),
-        .target = target,
-        .optimize = optimize,
-    });
-
-    lib.linkLibC();
-    lib.linkSystemLibrary("sqlite3");
-
-    // This declares intent for the library to be installed into the standard
-    // location when the user invokes the "install" step (the default step when
-    // running `zig build`).
-    b.installArtifact(lib);
-
     const exe = b.addExecutable(.{
         .name = "zig-todo",
         .root_source_file = b.path("src/main.zig"),
@@ -39,23 +22,21 @@ pub fn build(b: *std.Build) void {
         .optimize = optimize,
     });
 
-    const raylibDep = b.dependency("raylib", .{
+    const raylib_dep = b.dependency("raylib", .{
         .target = target,
         .optimize = optimize,
     });
 
     exe.linkLibC();
 
-    const raylib = raylibDep.artifact("raylib");
-
-    const rayguiDep = b.dependency("raygui", .{
+    const raygui_dep = b.dependency("raygui", .{
         .target = target,
         .optimize = optimize,
     });
 
-    exe.linkLibrary(raylib);
-    exe.addIncludePath(rayguiDep.path("src"));
-    exe.addIncludePath(rayguiDep.path("styles"));
+    exe.linkLibrary(raylib_dep.artifact("raylib"));
+    exe.addIncludePath(raygui_dep.path("src"));
+    exe.addIncludePath(raygui_dep.path("styles"));
     exe.addCSourceFile(.{ .file = b.path("./raygui_impl.c") });
 
     exe.linkSystemLibrary("sqlite3");
@@ -88,6 +69,24 @@ pub fn build(b: *std.Build) void {
     const run_step = b.step("run", "Run the app");
     run_step.dependOn(&run_cmd.step);
 
+    const migrate_exe = b.addExecutable(.{
+        .name = "zig-todo-migrate",
+        .root_source_file = b.path("src/migrate.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+
+    b.installArtifact(migrate_exe);
+
+    const migrate_cmd = b.addRunArtifact(migrate_exe);
+
+    if (b.args) |args| {
+        migrate_cmd.addArgs(args);
+    }
+
+    const migrate_step = b.step("migrate", "Run migrations");
+    migrate_step.dependOn(&migrate_cmd.step);
+
     // Creates a step for unit testing. This only builds the test executable
     // but does not run it.
     const lib_unit_tests = b.addTest(.{
@@ -109,10 +108,19 @@ pub fn build(b: *std.Build) void {
 
     const run_exe_unit_tests = b.addRunArtifact(exe_unit_tests);
 
+    const migrate_unit_tests = b.addTest(.{
+        .root_source_file = b.path("src/migrate.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+
+    const run_migrate_unit_tests = b.addRunArtifact(migrate_unit_tests);
+
     // Similar to creating the run step earlier, this exposes a `test` step to
     // the `zig build --help` menu, providing a way for the user to request
     // running the unit tests.
     const test_step = b.step("test", "Run unit tests");
     test_step.dependOn(&run_lib_unit_tests.step);
     test_step.dependOn(&run_exe_unit_tests.step);
+    test_step.dependOn(&run_migrate_unit_tests.step);
 }
