@@ -76,6 +76,9 @@ pub fn build(b: *std.Build) void {
         .optimize = optimize,
     });
 
+    migrate_exe.linkLibC();
+    migrate_exe.linkSystemLibrary("sqlite3");
+
     b.installArtifact(migrate_exe);
 
     const migrate_cmd = b.addRunArtifact(migrate_exe);

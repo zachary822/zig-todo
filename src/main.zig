@@ -21,12 +21,15 @@ pub fn main() !void {
     const screenWidth = 800;
     const screenHeight = 600;
 
-    var db = try DB.init(allocator, "todo.db");
+    var db = try DB.init("todo.db");
     defer db.deinit();
 
-    try db.migrate();
+    var todo_manager = root.TodoManager.init(allocator, db);
+    defer todo_manager.deinit();
 
-    _ = try db.getTodos();
+    try todo_manager.migrate();
+
+    _ = try todo_manager.getTodos();
 
     c.SetConfigFlags(c.FLAG_WINDOW_RESIZABLE | c.FLAG_VSYNC_HINT);
     c.InitWindow(screenWidth, screenHeight, "Todo App");
@@ -41,6 +44,9 @@ pub fn main() !void {
     var editMode = false;
     var input: [200:0]u8 = undefined;
     @memset(&input, 0);
+
+    var priorityActive: c_int = 0;
+    var priorityEdit = false;
 
     var currScreenWidth: f32 = undefined;
     var currScreenHeight: f32 = undefined;
@@ -76,15 +82,15 @@ pub fn main() !void {
                 }
 
                 if (lines.items.len > 0) {
-                    try db.addTodos(lines.items);
+                    try todo_manager.addTodos(lines.items);
                     refresh = true;
                 }
             }
         }
 
         if (refresh) {
-            db.clearTodos();
-            _ = try db.getTodos();
+            todo_manager.clearTodos();
+            _ = try todo_manager.getTodos();
             refresh = false;
         }
 
@@ -96,7 +102,7 @@ pub fn main() !void {
             .x = 0,
             .y = 0,
             .width = @max(ROW_WIDTH, currScreenWidth - @as(f32, @floatFromInt(c.GuiGetStyle(c.LISTVIEW, c.SCROLLBAR_WIDTH))) - 5),
-            .height = @as(f32, @floatFromInt(db.todos.items.len * 35)) + 5,
+            .height = @as(f32, @floatFromInt(todo_manager.todos.items.len * 35)) + 5,
         };
 
         // Drawing
@@ -113,16 +119,17 @@ pub fn main() !void {
         );
 
         c.GuiSetStyle(c.DEFAULT, c.TEXT_SIZE, 24);
-        if (c.GuiTextBox(.{ .x = 5, .y = 65, .width = 500, .height = 30 }, &input, 200, editMode) > 0) {
+        if (c.GuiTextBox(.{ .x = 5, .y = 65, .width = 435, .height = 30 }, &input, 200, editMode) > 0) {
             editMode = !editMode;
         }
 
         if (c.GuiButton(.{ .x = 510, .y = 65, .width = 60, .height = 30 }, "Add") > 0) {
             const msg = std.mem.sliceTo(&input, 0);
             if (msg.len > 0) {
-                try db.addTodo(msg);
+                try todo_manager.addTodo(msg, priorityActive);
                 @memset(&input, 0);
                 refresh = true;
+                priorityActive = 0;
                 editMode = true;
             }
         }
@@ -130,9 +137,10 @@ pub fn main() !void {
         if (c.IsKeyPressed(c.KEY_ENTER)) {
             const msg = std.mem.sliceTo(&input, 0);
             if (msg.len > 0) {
-                try db.addTodo(msg);
+                try todo_manager.addTodo(msg, priorityActive);
                 @memset(&input, 0);
                 refresh = true;
+                priorityActive = 0;
                 editMode = true;
             }
         }
@@ -143,7 +151,7 @@ pub fn main() !void {
             c.BeginScissorMode(@intFromFloat(panelView.x), @intFromFloat(panelView.y), @intFromFloat(panelView.width), @intFromFloat(panelView.height));
             defer c.EndScissorMode();
 
-            for (db.todos.items, 0..) |todo, i| {
+            for (todo_manager.todos.items, 0..) |todo, i| {
                 const x = 5 + panelRec.x + panelScroll.x;
                 const y = @as(f32, @floatFromInt(35 * i)) + panelRec.y + panelScroll.y + 5;
 
@@ -160,18 +168,38 @@ pub fn main() !void {
                     &checked,
                 ) > 0) {
                     if (checked) {
-                        try db.completeTodo(todo);
+                        try todo_manager.completeTodo(todo);
                     } else {
-                        try db.uncompleteTodo(todo);
+                        try todo_manager.uncompleteTodo(todo);
                     }
                     refresh = true;
                 }
 
+                const priority_label = try allocator.allocSentinel(u8, @intCast(todo.priority + 1), 0);
+                defer allocator.free(priority_label);
+
+                for (0..priority_label.len) |j| {
+                    priority_label[j] = '!';
+                }
+                priority_label[priority_label.len] = 0;
+
+                c.GuiSetStyle(c.LABEL, c.TEXT_ALIGNMENT, c.TEXT_ALIGN_CENTER);
+                _ = c.GuiLabel(.{ .x = x + 440, .y = y, .width = 60, .height = 30 }, priority_label);
+
                 if (c.GuiButton(.{ .x = x + 505, .y = y, .width = 30, .height = 30 }, "#143#") > 0) {
-                    try db.deleteTodo(todo);
+                    try todo_manager.deleteTodo(todo);
                     refresh = true;
                 }
             }
+        }
+
+        if (c.GuiDropdownBox(
+            .{ .x = 445, .y = 65, .width = 60, .height = 30 },
+            "!;!!;!!!",
+            &priorityActive,
+            priorityEdit,
+        ) > 0) {
+            priorityEdit = !priorityEdit;
         }
 
         c.DrawFPS(0, 0);
