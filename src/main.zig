@@ -41,19 +41,19 @@ pub fn main() !void {
 
     var refresh = false;
 
-    var editMode = false;
+    var edit_mode = false;
     var input: [200:0]u8 = undefined;
     @memset(&input, 0);
 
-    var priorityActive: c_int = 0;
-    var priorityEdit = false;
+    var priority_active: c_int = 0;
+    var priority_edit = false;
 
-    var currScreenWidth: f32 = undefined;
-    var currScreenHeight: f32 = undefined;
-    var panelScroll: c.Vector2 = undefined;
-    var panelView: c.Rectangle = undefined;
-    var panelRec: c.Rectangle = undefined;
-    var panelContentRec: c.Rectangle = undefined;
+    var curr_screen_width: f32 = undefined;
+    var curr_screen_height: f32 = undefined;
+    var panel_scroll: c.Vector2 = undefined;
+    var panel_view: c.Rectangle = undefined;
+    var panel_rec: c.Rectangle = undefined;
+    var panel_content_rec: c.Rectangle = undefined;
 
     while (!c.WindowShouldClose()) {
         if (c.IsFileDropped()) {
@@ -94,14 +94,14 @@ pub fn main() !void {
             refresh = false;
         }
 
-        currScreenWidth = @floatFromInt(c.GetScreenWidth());
-        currScreenHeight = @floatFromInt(c.GetScreenHeight());
+        curr_screen_width = @floatFromInt(c.GetScreenWidth());
+        curr_screen_height = @floatFromInt(c.GetScreenHeight());
 
-        panelRec = .{ .x = 0, .y = 100, .width = currScreenWidth, .height = currScreenHeight - 100 };
-        panelContentRec = .{
+        panel_rec = .{ .x = 0, .y = 100, .width = curr_screen_width, .height = curr_screen_height - 100 };
+        panel_content_rec = .{
             .x = 0,
             .y = 0,
-            .width = @max(ROW_WIDTH, currScreenWidth - @as(f32, @floatFromInt(c.GuiGetStyle(c.LISTVIEW, c.SCROLLBAR_WIDTH))) - 5),
+            .width = @max(ROW_WIDTH, curr_screen_width - @as(f32, @floatFromInt(c.GuiGetStyle(c.LISTVIEW, c.SCROLLBAR_WIDTH))) - 5),
             .height = @as(f32, @floatFromInt(todo_manager.todos.items.len * 35)) + 5,
         };
 
@@ -114,49 +114,49 @@ pub fn main() !void {
 
         c.GuiSetStyle(c.DEFAULT, c.TEXT_SIZE, 48);
         _ = c.GuiStatusBar(
-            .{ .x = 0, .y = 0, .width = currScreenWidth, .height = 60 },
+            .{ .x = 0, .y = 0, .width = curr_screen_width, .height = 60 },
             "Todo App",
         );
 
         c.GuiSetStyle(c.DEFAULT, c.TEXT_SIZE, 24);
-        if (c.GuiTextBox(.{ .x = 5, .y = 65, .width = 435, .height = 30 }, &input, 200, editMode) > 0) {
-            editMode = !editMode;
+        if (c.GuiTextBox(.{ .x = 5, .y = 65, .width = 435, .height = 30 }, &input, 200, edit_mode) > 0) {
+            edit_mode = !edit_mode;
         }
 
         if (c.GuiButton(.{ .x = 510, .y = 65, .width = 60, .height = 30 }, "Add") > 0) {
             const msg = std.mem.sliceTo(&input, 0);
             if (msg.len > 0) {
-                try todo_manager.addTodo(msg, priorityActive);
+                try todo_manager.addTodo(msg, priority_active);
                 @memset(&input, 0);
                 refresh = true;
-                priorityActive = 0;
-                editMode = true;
+                priority_active = 0;
+                edit_mode = true;
             }
         }
 
         if (c.IsKeyPressed(c.KEY_ENTER)) {
             const msg = std.mem.sliceTo(&input, 0);
             if (msg.len > 0) {
-                try todo_manager.addTodo(msg, priorityActive);
+                try todo_manager.addTodo(msg, priority_active);
                 @memset(&input, 0);
                 refresh = true;
-                priorityActive = 0;
-                editMode = true;
+                priority_active = 0;
+                edit_mode = true;
             }
         }
 
-        _ = c.GuiScrollPanel(panelRec, null, panelContentRec, &panelScroll, &panelView);
+        _ = c.GuiScrollPanel(panel_rec, null, panel_content_rec, &panel_scroll, &panel_view);
 
         {
-            c.BeginScissorMode(@intFromFloat(panelView.x), @intFromFloat(panelView.y), @intFromFloat(panelView.width), @intFromFloat(panelView.height));
+            c.BeginScissorMode(@intFromFloat(panel_view.x), @intFromFloat(panel_view.y), @intFromFloat(panel_view.width), @intFromFloat(panel_view.height));
             defer c.EndScissorMode();
 
             for (todo_manager.todos.items, 0..) |todo, i| {
-                const x = 5 + panelRec.x + panelScroll.x;
-                const y = @as(f32, @floatFromInt(35 * i)) + panelRec.y + panelScroll.y + 5;
+                const x = 5 + panel_rec.x + panel_scroll.x;
+                const y = @as(f32, @floatFromInt(35 * i)) + panel_rec.y + panel_scroll.y + 5;
 
                 // don't render extra rows
-                if (y > currScreenHeight or y < 65) {
+                if (y > curr_screen_height or y < 65) {
                     continue;
                 }
 
@@ -177,14 +177,13 @@ pub fn main() !void {
 
                 const priority_label = try allocator.allocSentinel(u8, @intCast(todo.priority + 1), 0);
                 defer allocator.free(priority_label);
-
-                for (0..priority_label.len) |j| {
-                    priority_label[j] = '!';
-                }
-                priority_label[priority_label.len] = 0;
+                @memset(priority_label, '!');
 
                 c.GuiSetStyle(c.LABEL, c.TEXT_ALIGNMENT, c.TEXT_ALIGN_CENTER);
-                _ = c.GuiLabel(.{ .x = x + 440, .y = y, .width = 60, .height = 30 }, priority_label);
+                if (c.GuiLabelButton(.{ .x = x + 440, .y = y, .width = 60, .height = 30 }, priority_label) > 0) {
+                    try todo_manager.updatePriority(todo, todo.priority + 1);
+                    refresh = true;
+                }
 
                 if (c.GuiButton(.{ .x = x + 505, .y = y, .width = 30, .height = 30 }, "#143#") > 0) {
                     try todo_manager.deleteTodo(todo);
@@ -196,10 +195,10 @@ pub fn main() !void {
         if (c.GuiDropdownBox(
             .{ .x = 445, .y = 65, .width = 60, .height = 30 },
             "!;!!;!!!",
-            &priorityActive,
-            priorityEdit,
+            &priority_active,
+            priority_edit,
         ) > 0) {
-            priorityEdit = !priorityEdit;
+            priority_edit = !priority_edit;
         }
 
         c.DrawFPS(0, 0);
