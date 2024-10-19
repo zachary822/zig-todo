@@ -226,10 +226,10 @@ pub const TodoManager = struct {
 
     pub fn updatePriority(self: Self, todo: Todo, priority: i64) !void {
         const stmt =
-            \\ update todo set priority = ? where id = ?
+            \\ update todo set priority = ? % 3 where id = ?
         ;
 
-        try self.db.query(stmt, .{ @rem(priority, 3), todo.id });
+        try self.db.query(stmt, .{ priority, todo.id });
     }
 
     pub fn addTodo(self: Self, message: [:0]u8, priority: i64) !void {
