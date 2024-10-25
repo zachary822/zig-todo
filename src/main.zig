@@ -1,8 +1,8 @@
 const std = @import("std");
 const c = @cImport({
+    @cInclude("sqlite3.h");
     @cInclude("raylib.h");
     @cInclude("raygui.h");
-    @cInclude("sqlite3.h");
 
     @cInclude("string.h");
     @cInclude("stdlib.h");
@@ -29,8 +29,6 @@ pub fn main() !void {
 
     try todo_manager.migrate();
 
-    _ = try todo_manager.getTodos();
-
     c.SetConfigFlags(c.FLAG_WINDOW_RESIZABLE | c.FLAG_VSYNC_HINT);
     c.InitWindow(screenWidth, screenHeight, "Todo App");
     defer c.CloseWindow();
@@ -39,7 +37,7 @@ pub fn main() !void {
 
     c.GuiLoadStyleBluish();
 
-    var refresh = false;
+    var refresh = true;
 
     var edit_mode = false;
     var input: [200:0]u8 = undefined;
@@ -56,6 +54,12 @@ pub fn main() !void {
     var panel_content_rec: c.Rectangle = undefined;
 
     while (!c.WindowShouldClose()) {
+        if (refresh) {
+            todo_manager.clearTodos();
+            _ = try todo_manager.getTodos();
+            refresh = false;
+        }
+
         if (c.IsFileDropped()) {
             var arena = std.heap.ArenaAllocator.init(allocator);
             defer arena.deinit();
@@ -86,12 +90,6 @@ pub fn main() !void {
                     refresh = true;
                 }
             }
-        }
-
-        if (refresh) {
-            todo_manager.clearTodos();
-            _ = try todo_manager.getTodos();
-            refresh = false;
         }
 
         curr_screen_width = @floatFromInt(c.GetScreenWidth());
@@ -179,8 +177,7 @@ pub fn main() !void {
                 defer allocator.free(priority_label);
                 @memset(priority_label, '!');
 
-                c.GuiSetStyle(c.LABEL, c.TEXT_ALIGNMENT, c.TEXT_ALIGN_CENTER);
-                if (c.GuiLabelButton(.{ .x = x + 440, .y = y, .width = 60, .height = 30 }, priority_label) > 0) {
+                if (c.GuiButton(.{ .x = x + 440, .y = y, .width = 60, .height = 30 }, priority_label) > 0) {
                     try todo_manager.updatePriority(todo, todo.priority + 1);
                     refresh = true;
                 }

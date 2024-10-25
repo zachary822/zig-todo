@@ -134,6 +134,8 @@ pub const TodoManager = struct {
 
     pub fn migrate(self: Self) !void {
         try self.db.exec(
+            \\PRAGMA journal_mode=WAL;
+            \\
             \\CREATE TABLE IF NOT EXISTS todo (
             \\  id INTEGER PRIMARY KEY AUTOINCREMENT,
             \\  description TEXT NOT NULL,
