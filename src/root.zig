@@ -19,8 +19,9 @@ pub const DB = struct {
     const Self = @This();
 
     db: *c.sqlite3,
+    allocator: std.mem.Allocator,
 
-    pub fn init(path: [:0]const u8) !Self {
+    pub fn init(allocator: std.mem.Allocator, path: [:0]const u8) !Self {
         var c_db: ?*c.sqlite3 = undefined;
 
         if (c.SQLITE_OK != c.sqlite3_open(path, &c_db)) {
@@ -29,6 +30,7 @@ pub const DB = struct {
         }
         return .{
             .db = c_db.?,
+            .allocator = allocator,
         };
     }
 
@@ -53,7 +55,7 @@ pub const DB = struct {
         }
     }
 
-    pub fn query(self: Self, stmt: [:0]const u8, args: anytype) !void {
+    pub fn query(self: Self, stmt: [:0]const u8, args: anytype, comptime R: type) !std.ArrayList(R) {
         var err: c_int = undefined;
         const ArgsType = @TypeOf(args);
         const args_type_info = @typeInfo(ArgsType);
@@ -94,15 +96,79 @@ pub const DB = struct {
             }
         }
 
+        const result_type_info = @typeInfo(R);
+
+        if (result_type_info != .Struct) {
+            @compileError("expect struct argument, found " ++ @typeName(R));
+        }
+
+        const result_fields_info = result_type_info.Struct.fields;
+
         var rc = c.sqlite3_step(prepared);
 
-        while (rc == c.SQLITE_ROW) : (rc = c.sqlite3_step(prepared)) {}
+        var result = std.ArrayList(R).init(self.allocator);
+
+        while (rc == c.SQLITE_ROW) : (rc = c.sqlite3_step(prepared)) {
+            var thing: R = undefined;
+            inline for (result_fields_info, 0..) |info, i| {
+                switch (@typeInfo(info.type)) {
+                    .ComptimeInt, .Int => {
+                        @field(thing, info.name) = c.sqlite3_column_int(prepared, i);
+                    },
+                    .ComptimeFloat, .Float => {
+                        @field(thing, info.name) = c.sqlite3_column_double(prepared, i);
+                    },
+                    .Pointer => |ptr_info| switch (ptr_info.size) {
+                        .One => switch (@typeInfo(ptr_info.child)) {
+                            .Array => {
+                                const c_str = c.sqlite3_column_text(prepared, i);
+                                const str = try self.allocator.dupeZ(u8, std.mem.span(c_str));
+                                @field(thing, info.name) = str;
+                            },
+                            else => {},
+                        },
+                        .Slice => {
+                            const c_str = c.sqlite3_column_text(prepared, i);
+                            const str = try self.allocator.dupeZ(u8, std.mem.span(c_str));
+                            @field(thing, info.name) = str;
+                        },
+                        else => {},
+                    },
+                    else => {},
+                }
+            }
+            try result.append(thing);
+        }
 
         if (rc != c.SQLITE_DONE) {
             return SqliteError.StepError;
         }
+
+        if (result.items.len == 0) {
+            defer result.deinit();
+            return null;
+        }
+        return result;
     }
 };
+
+test "db test" {
+    const allocator = testing.allocator;
+
+    var db = try DB.init(allocator, "test.db");
+    defer std.fs.cwd().deleteFile("test.db") catch {};
+    defer db.deinit();
+
+    const result = (try db.query("select \"hmm\"", .{}, struct { a: [:0]u8 })).?;
+
+    defer {
+        for (result.items) |item| {
+            allocator.free(item.a);
+        }
+        result.deinit();
+    }
+    try testing.expect(std.mem.eql(u8, result.items[0].a, "hmm"));
+}
 
 pub const TodoManager = struct {
     const Self = @This();
@@ -294,7 +360,7 @@ pub const TodoManager = struct {
 test "can fetch todos" {
     const allocator = testing.allocator;
 
-    var db = try DB.init("test.db");
+    var db = try DB.init(allocator, "test.db");
     defer std.fs.cwd().deleteFile("test.db") catch {};
     defer db.deinit();
 
@@ -313,7 +379,7 @@ test "can fetch todos" {
 test "can add todos" {
     const allocator = testing.allocator;
 
-    var db = try DB.init("test.db");
+    var db = try DB.init(allocator, "test.db");
     defer std.fs.cwd().deleteFile("test.db") catch {};
     defer db.deinit();
 
