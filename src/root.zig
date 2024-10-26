@@ -104,6 +104,13 @@ pub const DB = struct {
     }
 };
 
+test "test query" {
+    var db = try DB.init(":memory:");
+    defer db.deinit();
+
+    try db.query("SELECT 1", .{});
+}
+
 pub const TodoManager = struct {
     const Self = @This();
 
@@ -294,8 +301,7 @@ pub const TodoManager = struct {
 test "can fetch todos" {
     const allocator = testing.allocator;
 
-    var db = try DB.init("test.db");
-    defer std.fs.cwd().deleteFile("test.db") catch {};
+    var db = try DB.init(":memory:");
     defer db.deinit();
 
     var todo_manager = TodoManager.init(allocator, db);
@@ -313,8 +319,7 @@ test "can fetch todos" {
 test "can add todos" {
     const allocator = testing.allocator;
 
-    var db = try DB.init("test.db");
-    defer std.fs.cwd().deleteFile("test.db") catch {};
+    var db = try DB.init(":memory:");
     defer db.deinit();
 
     var todo_manager = TodoManager.init(allocator, db);
