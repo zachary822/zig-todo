@@ -8,6 +8,7 @@ const c = @cImport({
     @cInclude("stdlib.h");
     @cInclude("bluish/style_bluish.h");
 });
+const config = @import("config");
 const root = @import("root.zig");
 
 const ROW_WIDTH = 545;
@@ -198,6 +199,8 @@ pub fn main() !void {
             priority_edit = !priority_edit;
         }
 
-        c.DrawFPS(0, 0);
+        if (config.debug) {
+            c.DrawFPS(0, 0);
+        }
     }
 }
