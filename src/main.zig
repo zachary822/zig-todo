@@ -54,6 +54,9 @@ pub fn main() !void {
     var panel_rec: c.Rectangle = undefined;
     var panel_content_rec: c.Rectangle = undefined;
 
+    var mx: c_int = undefined;
+    var my: c_int = undefined;
+
     while (!c.WindowShouldClose()) {
         if (refresh) {
             todo_manager.clearTodos();
@@ -104,6 +107,9 @@ pub fn main() !void {
             .height = @as(f32, @floatFromInt(todo_manager.todos.items.len * 35)) + 5,
         };
 
+        mx = c.GetMouseX();
+        my = c.GetMouseY();
+
         // Drawing
 
         c.BeginDrawing();
@@ -118,8 +124,16 @@ pub fn main() !void {
         );
 
         c.GuiSetStyle(c.DEFAULT, c.TEXT_SIZE, 24);
+
         if (c.GuiTextBox(.{ .x = 5, .y = 65, .width = 435, .height = 30 }, &input, 200, edit_mode) > 0) {
             edit_mode = !edit_mode;
+        }
+
+        if (c.IsMouseButtonPressed(c.MOUSE_BUTTON_RIGHT) and (mx >= 5 and mx <= 440) and (my >= 65 and my <= 95)) {
+            const paste = std.mem.span(c.GetClipboardText());
+
+            std.mem.copyForwards(u8, &input, paste[0..@min(paste.len, 200)]);
+            edit_mode = true;
         }
 
         if (c.GuiButton(.{ .x = 510, .y = 65, .width = 60, .height = 30 }, "Add") > 0) {
