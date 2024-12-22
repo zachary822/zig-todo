@@ -114,27 +114,20 @@ pub const DB = struct {
 
         while (rc == c.SQLITE_ROW) : (rc = c.sqlite3_step(prepared)) {
             if (res_fields_info.len > 0) {
-                std.debug.print("{any}\n", .{@typeInfo(@typeInfo(res_fields_info[0].type).Optional.child)});
                 var row: T = undefined;
                 inline for (res_fields_info, 0..) |info, i| {
                     @field(row, info.name) = switch (@typeInfo(info.type)) {
                         .ComptimeInt, .Int => c.sqlite3_column_int(prepared, i),
                         .ComptimeFloat, .Float => c.sqlite3_column_double(prepared, i),
                         .Pointer => |ptr_info| switch (ptr_info.size) {
-                            .Slice => blk: {
-                                const c_str = c.sqlite3_column_text(prepared, i);
-                                break :blk try allocator.dupeZ(u8, std.mem.span(c_str));
-                            },
+                            .Slice => try getSlice(ptr_info.child, allocator, prepared, i),
                             else => unreachable,
                         },
                         .Optional => |opt_info| if (c.sqlite3_column_type(prepared, i) == c.SQLITE_NULL) null else switch (@typeInfo(opt_info.child)) {
                             .ComptimeInt, .Int => c.sqlite3_column_int(prepared, i),
                             .ComptimeFloat, .Float => c.sqlite3_column_double(prepared, i),
                             .Pointer => |ptr_info| switch (ptr_info.size) {
-                                .Slice => blk: {
-                                    const c_str = c.sqlite3_column_text(prepared, i);
-                                    break :blk try allocator.dupeZ(u8, std.mem.span(c_str));
-                                },
+                                .Slice => try getSlice(ptr_info.child, allocator, prepared, i),
                                 else => unreachable,
                             },
                             else => unreachable,
@@ -152,6 +145,25 @@ pub const DB = struct {
 
         return results.toOwnedSlice();
     }
+
+    fn getSlice(comptime T: type, allocator: std.mem.Allocator, prepared: ?*c.sqlite3_stmt, i: c_int) ![:0]T {
+        return switch (c.sqlite3_column_type(prepared, i)) {
+            c.SQLITE_TEXT => blk: {
+                const c_str = c.sqlite3_column_text(prepared, i);
+                break :blk try allocator.dupeZ(u8, std.mem.span(c_str));
+            },
+            c.SQLITE_BLOB => blk: {
+                const size: usize = @intCast(c.sqlite3_column_bytes(prepared, i));
+                const c_str = @as([*c]const T, @ptrCast(c.sqlite3_column_blob(prepared, i)))[0..size];
+                const blob = try allocator.allocSentinel(T, size, 0);
+
+                std.mem.copyForwards(T, blob, c_str);
+
+                break :blk blob;
+            },
+            else => unreachable,
+        };
+    }
 };
 
 test "test query" {
@@ -160,8 +172,8 @@ test "test query" {
     var db = DB.init(":memory:");
     try db.connect();
     defer db.deinit();
-
-    const results = try db.query(struct { a: ?[:0]const u8 }, allocator, "SELECT 'abc'", .{});
+    const results = try db.query(struct { a: ?[:0]const u8 }, allocator, "SELECT x'deadbeef00'", .{});
+    std.debug.print("{any}\n", .{results});
 
     for (results) |row| {
         if (row.a) |a| {
@@ -235,43 +247,16 @@ pub const TodoManager = struct {
     pub fn getTodos(self: *Self) !std.ArrayList(Todo) {
         self.clearTodos();
 
-        var prepared: ?*c.sqlite3_stmt = undefined;
         const stmt =
             \\ select id, description, priority, datetime(completed_at, 'unixepoch', 'localtime')
             \\ from todo
             \\ order by created_at asc, id asc;
         ;
 
-        try self.db.prepare(stmt, &prepared);
-        defer _ = c.sqlite3_finalize(prepared);
+        const results = try self.db.query(Self.Todo, self.allocator, stmt, .{});
+        defer self.allocator.free(results);
 
-        var rc = c.sqlite3_step(prepared);
-
-        while (rc == c.SQLITE_ROW) : (rc = c.sqlite3_step(prepared)) {
-            const id = c.sqlite3_column_int(prepared, 0);
-
-            const c_desc = c.sqlite3_column_text(prepared, 1);
-            const desc = try self.allocator.dupeZ(u8, std.mem.span(c_desc));
-
-            const priority = c.sqlite3_column_int(prepared, 2);
-
-            const completed = c.sqlite3_column_type(prepared, 3) != c.SQLITE_NULL;
-            const completed_at = if (completed) blk: {
-                const c_comp = c.sqlite3_column_text(prepared, 3);
-                break :blk try self.allocator.dupeZ(u8, std.mem.span(c_comp));
-            } else null;
-
-            try self.todos.append(.{
-                .id = id,
-                .description = desc,
-                .priority = priority,
-                .completed_at = completed_at,
-            });
-        }
-
-        if (rc != c.SQLITE_DONE) {
-            return SqliteError.StepError;
-        }
+        try self.todos.appendSlice(results);
 
         return self.todos;
     }
