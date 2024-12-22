@@ -57,8 +57,9 @@ pub const DB = struct {
         }
     }
 
-    pub fn query(self: Self, comptime T: type, allocator: std.mem.Allocator, stmt: [:0]const u8, args: anytype) ![]T {
+    fn bind_params(prepared: ?*c.sqlite3_stmt, args: anytype) !void {
         var err: c_int = undefined;
+
         const ArgsType = @TypeOf(args);
         const args_type_info = @typeInfo(ArgsType);
 
@@ -71,10 +72,6 @@ pub const DB = struct {
         if (fields_info.len > 32766) {
             @compileError("too many bind parameters");
         }
-
-        var prepared: ?*c.sqlite3_stmt = undefined;
-        try self.prepare(stmt, &prepared);
-        defer _ = c.sqlite3_finalize(prepared);
 
         inline for (fields_info, 0..) |info, i| {
             const value = @field(args, info.name);
@@ -103,9 +100,33 @@ pub const DB = struct {
                 return SqliteError.BindError;
             }
         }
+    }
 
-        var rc = c.sqlite3_step(prepared);
+    fn getSlice(comptime T: type, allocator: std.mem.Allocator, prepared: ?*c.sqlite3_stmt, i: c_int) ![:0]T {
+        return switch (c.sqlite3_column_type(prepared, i)) {
+            c.SQLITE_TEXT => blk: {
+                const size: usize = @intCast(c.sqlite3_column_bytes(prepared, i));
+                const c_str = @as([*c]const T, @ptrCast(c.sqlite3_column_text(prepared, i)))[0..size];
+                const blob = try allocator.allocSentinel(T, size, 0);
 
+                std.mem.copyForwards(T, blob, c_str);
+
+                break :blk blob;
+            },
+            c.SQLITE_BLOB => blk: {
+                const size: usize = @intCast(c.sqlite3_column_bytes(prepared, i));
+                const c_str = @as([*c]const T, @ptrCast(c.sqlite3_column_blob(prepared, i)))[0..size];
+                const blob = try allocator.allocSentinel(T, size, 0);
+
+                std.mem.copyForwards(T, blob, c_str);
+
+                break :blk blob;
+            },
+            else => unreachable,
+        };
+    }
+
+    fn fetchAllRows(comptime T: type, allocator: std.mem.Allocator, prepared: ?*c.sqlite3_stmt) ![]T {
         const res_type_info = @typeInfo(T);
 
         if (res_type_info != .Struct and res_type_info != .Void) {
@@ -121,6 +142,8 @@ pub const DB = struct {
             }
             break :blk &[_]std.builtin.Type.StructField{};
         };
+
+        var rc = c.sqlite3_step(prepared);
 
         while (rc == c.SQLITE_ROW) : (rc = c.sqlite3_step(prepared)) {
             if (res_fields_info.len > 0) {
@@ -156,23 +179,14 @@ pub const DB = struct {
         return results.toOwnedSlice();
     }
 
-    fn getSlice(comptime T: type, allocator: std.mem.Allocator, prepared: ?*c.sqlite3_stmt, i: c_int) ![:0]T {
-        return switch (c.sqlite3_column_type(prepared, i)) {
-            c.SQLITE_TEXT => blk: {
-                const c_str = c.sqlite3_column_text(prepared, i);
-                break :blk try allocator.dupeZ(u8, std.mem.span(c_str));
-            },
-            c.SQLITE_BLOB => blk: {
-                const size: usize = @intCast(c.sqlite3_column_bytes(prepared, i));
-                const c_str = @as([*c]const T, @ptrCast(c.sqlite3_column_blob(prepared, i)))[0..size];
-                const blob = try allocator.allocSentinel(T, size, 0);
+    pub fn query(self: Self, comptime T: type, allocator: std.mem.Allocator, stmt: [:0]const u8, args: anytype) ![]T {
+        var prepared: ?*c.sqlite3_stmt = undefined;
+        try self.prepare(stmt, &prepared);
+        defer _ = c.sqlite3_finalize(prepared);
 
-                std.mem.copyForwards(T, blob, c_str);
+        try bind_params(prepared, args);
 
-                break :blk blob;
-            },
-            else => unreachable,
-        };
+        return fetchAllRows(T, allocator, prepared);
     }
 };
 
