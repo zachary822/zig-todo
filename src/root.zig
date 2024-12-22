@@ -83,9 +83,19 @@ pub const DB = struct {
                 .ComptimeInt, .Int => c.sqlite3_bind_int64(prepared, i + 1, value),
                 .ComptimeFloat, .Float => c.sqlite3_bind_double(prepared, i + 1, value),
                 .Pointer => |ptr_info| switch (ptr_info.size) {
-                    .Slice => c.sqlite3_bind_text(prepared, 1, value, @intCast(value.len), c.SQLITE_STATIC),
+                    .Slice => c.sqlite3_bind_blob(prepared, i + 1, @ptrCast(value), @intCast(value.len), c.SQLITE_STATIC),
                     else => unreachable,
                 },
+                .Optional => |opt_info| if (value) |val| switch (@typeInfo(opt_info.child)) {
+                    .ComptimeInt, .Int => c.sqlite3_bind_int64(prepared, i + 1, val),
+                    .ComptimeFloat, .Float => c.sqlite3_bind_double(prepared, i + 1, val),
+                    .Pointer => |ptr_info| switch (ptr_info.size) {
+                        .Slice => c.sqlite3_bind_blob(prepared, i + 1, @ptrCast(val), @intCast(value.len), c.SQLITE_STATIC),
+                        else => unreachable,
+                    },
+                    else => unreachable,
+                } else c.sqlite3_bind_null(prepared, i + 1),
+                .Null => c.sqlite3_bind_null(prepared, i + 1),
                 else => unreachable,
             };
 
@@ -173,13 +183,33 @@ test "test query" {
     try db.connect();
     defer db.deinit();
     const results = try db.query(struct { a: ?[:0]const u8 }, allocator, "SELECT x'deadbeef00'", .{});
-    std.debug.print("{any}\n", .{results});
 
     for (results) |row| {
         if (row.a) |a| {
             allocator.free(a);
         }
     }
+    allocator.free(results);
+}
+
+test "test query null" {
+    const allocator = std.testing.allocator;
+
+    var db = DB.init(":memory:");
+    try db.connect();
+    defer db.deinit();
+    const results = try db.query(void, allocator, "SELECT ?", .{null});
+    allocator.free(results);
+}
+
+test "test query optional" {
+    const allocator = std.testing.allocator;
+
+    var db = DB.init(":memory:");
+    try db.connect();
+    defer db.deinit();
+    const thing: ?i64 = 23;
+    const results = try db.query(struct { a: ?i64 }, allocator, "SELECT ?", .{thing});
     allocator.free(results);
 }
 
