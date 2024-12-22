@@ -12,24 +12,28 @@ pub const SqliteError = error{
     BindError,
     ResetError,
     PrepareError,
+    ReturnTypeError,
 };
 
 /// The thinnest of sqlite3 wrappers
 pub const DB = struct {
     const Self = @This();
 
-    db: *c.sqlite3,
+    db: ?*c.sqlite3,
+    path: [:0]const u8,
 
-    pub fn init(path: [:0]const u8) !Self {
-        var c_db: ?*c.sqlite3 = undefined;
+    pub fn init(path: [:0]const u8) Self {
+        return .{
+            .db = null,
+            .path = path,
+        };
+    }
 
-        if (c.SQLITE_OK != c.sqlite3_open(path, &c_db)) {
-            std.debug.print("Can't open database: {s}\n", .{c.sqlite3_errmsg(c_db)});
+    pub fn connect(self: *Self) !void {
+        if (c.SQLITE_OK != c.sqlite3_open(self.path, &self.db)) {
+            std.debug.print("Can't open database: {s}\n", .{c.sqlite3_errmsg(self.db)});
             return SqliteError.DbOpenError;
         }
-        return .{
-            .db = c_db.?,
-        };
     }
 
     pub fn deinit(self: *Self) void {
@@ -53,7 +57,7 @@ pub const DB = struct {
         }
     }
 
-    pub fn query(self: Self, stmt: [:0]const u8, args: anytype) !void {
+    pub fn query(self: Self, comptime T: type, allocator: std.mem.Allocator, stmt: [:0]const u8, args: anytype) ![]T {
         var err: c_int = undefined;
         const ArgsType = @TypeOf(args);
         const args_type_info = @typeInfo(ArgsType);
@@ -79,14 +83,10 @@ pub const DB = struct {
                 .ComptimeInt, .Int => c.sqlite3_bind_int64(prepared, i + 1, value),
                 .ComptimeFloat, .Float => c.sqlite3_bind_double(prepared, i + 1, value),
                 .Pointer => |ptr_info| switch (ptr_info.size) {
-                    .One => switch (@typeInfo(ptr_info.child)) {
-                        .Array => c.sqlite3_bind_text(prepared, 1, value, @intCast(value.len), c.SQLITE_STATIC),
-                        else => {},
-                    },
                     .Slice => c.sqlite3_bind_text(prepared, 1, value, @intCast(value.len), c.SQLITE_STATIC),
-                    else => {},
+                    else => unreachable,
                 },
-                else => {},
+                else => unreachable,
             };
 
             if (err != c.SQLITE_OK) {
@@ -96,19 +96,79 @@ pub const DB = struct {
 
         var rc = c.sqlite3_step(prepared);
 
-        while (rc == c.SQLITE_ROW) : (rc = c.sqlite3_step(prepared)) {}
+        const res_type_info = @typeInfo(T);
+
+        if (res_type_info != .Struct and res_type_info != .Void) {
+            return SqliteError.ReturnTypeError;
+        }
+
+        var results: std.ArrayList(T) = std.ArrayList(T).init(allocator);
+        defer results.deinit();
+
+        const res_fields_info = comptime blk: {
+            if (res_type_info == .Struct) {
+                break :blk res_type_info.Struct.fields;
+            }
+            break :blk &[_]std.builtin.Type.StructField{};
+        };
+
+        while (rc == c.SQLITE_ROW) : (rc = c.sqlite3_step(prepared)) {
+            if (res_fields_info.len > 0) {
+                std.debug.print("{any}\n", .{@typeInfo(@typeInfo(res_fields_info[0].type).Optional.child)});
+                var row: T = undefined;
+                inline for (res_fields_info, 0..) |info, i| {
+                    @field(row, info.name) = switch (@typeInfo(info.type)) {
+                        .ComptimeInt, .Int => c.sqlite3_column_int(prepared, i),
+                        .ComptimeFloat, .Float => c.sqlite3_column_double(prepared, i),
+                        .Pointer => |ptr_info| switch (ptr_info.size) {
+                            .Slice => blk: {
+                                const c_str = c.sqlite3_column_text(prepared, i);
+                                break :blk try allocator.dupeZ(u8, std.mem.span(c_str));
+                            },
+                            else => unreachable,
+                        },
+                        .Optional => |opt_info| if (c.sqlite3_column_type(prepared, i) == c.SQLITE_NULL) null else switch (@typeInfo(opt_info.child)) {
+                            .ComptimeInt, .Int => c.sqlite3_column_int(prepared, i),
+                            .ComptimeFloat, .Float => c.sqlite3_column_double(prepared, i),
+                            .Pointer => |ptr_info| switch (ptr_info.size) {
+                                .Slice => blk: {
+                                    const c_str = c.sqlite3_column_text(prepared, i);
+                                    break :blk try allocator.dupeZ(u8, std.mem.span(c_str));
+                                },
+                                else => unreachable,
+                            },
+                            else => unreachable,
+                        },
+                        else => unreachable,
+                    };
+                }
+                try results.append(row);
+            }
+        }
 
         if (rc != c.SQLITE_DONE) {
             return SqliteError.StepError;
         }
+
+        return results.toOwnedSlice();
     }
 };
 
 test "test query" {
-    var db = try DB.init(":memory:");
+    const allocator = std.testing.allocator;
+
+    var db = DB.init(":memory:");
+    try db.connect();
     defer db.deinit();
 
-    try db.query("SELECT 1", .{});
+    const results = try db.query(struct { a: ?[:0]const u8 }, allocator, "SELECT 'abc'", .{});
+
+    for (results) |row| {
+        if (row.a) |a| {
+            allocator.free(a);
+        }
+    }
+    allocator.free(results);
 }
 
 pub const TodoManager = struct {
@@ -220,7 +280,7 @@ pub const TodoManager = struct {
         const stmt =
             \\ update todo set completed_at = unixepoch() where id = ?;
         ;
-        try self.db.query(stmt, .{todo.id});
+        _ = try self.db.query(void, self.allocator, stmt, .{todo.id});
     }
 
     pub fn uncompleteTodo(self: Self, todo: Todo) !void {
@@ -228,7 +288,7 @@ pub const TodoManager = struct {
             \\ update todo set completed_at = null where id = ?;
         ;
 
-        try self.db.query(stmt, .{todo.id});
+        _ = try self.db.query(void, self.allocator, stmt, .{todo.id});
     }
 
     pub fn updatePriority(self: Self, todo: Todo, priority: i64) !void {
@@ -236,21 +296,21 @@ pub const TodoManager = struct {
             \\ update todo set priority = ? % 3 where id = ?
         ;
 
-        try self.db.query(stmt, .{ priority, todo.id });
+        _ = try self.db.query(void, self.allocator, stmt, .{ priority, todo.id });
     }
 
     pub fn addTodo(self: Self, message: [:0]u8, priority: i64) !void {
         const stmt =
             \\ insert into todo (description, priority) values (?, ?);
         ;
-        try self.db.query(stmt, .{ message, priority });
+        _ = try self.db.query(void, self.allocator, stmt, .{ message, priority });
     }
 
     pub fn deleteTodo(self: Self, todo: Todo) !void {
         const stmt =
             \\ delete from todo where id = ?;
         ;
-        try self.db.query(stmt, .{todo.id});
+        _ = try self.db.query(void, self.allocator, stmt, .{todo.id});
     }
 
     pub fn addTodos(self: Self, todos: [][:0]u8) !void {
@@ -299,7 +359,8 @@ pub const TodoManager = struct {
 test "can fetch todos" {
     const allocator = testing.allocator;
 
-    var db = try DB.init(":memory:");
+    var db = DB.init(":memory:");
+    try db.connect();
     defer db.deinit();
 
     var todo_manager = TodoManager.init(allocator, db);
@@ -317,7 +378,8 @@ test "can fetch todos" {
 test "can add todos" {
     const allocator = testing.allocator;
 
-    var db = try DB.init(":memory:");
+    var db = DB.init(":memory:");
+    try db.connect();
     defer db.deinit();
 
     var todo_manager = TodoManager.init(allocator, db);

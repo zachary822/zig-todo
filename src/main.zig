@@ -22,7 +22,8 @@ pub fn main() !void {
     const screenWidth = 800;
     const screenHeight = 600;
 
-    var db = try DB.init("todo.db");
+    var db = DB.init("todo.db");
+    try db.connect();
     defer db.deinit();
 
     var todo_manager = root.TodoManager.init(allocator, db);
