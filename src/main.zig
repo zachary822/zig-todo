@@ -1,6 +1,9 @@
 const std = @import("std");
+const config = @import("config");
 const c = @cImport({
-    @cInclude("sqlite3.h");
+    if (config.debug) {
+        @cInclude("sqlite3.h");
+    }
     @cInclude("raylib.h");
     @cInclude("raygui.h");
 
@@ -8,7 +11,6 @@ const c = @cImport({
     @cInclude("stdlib.h");
     @cInclude("bluish/style_bluish.h");
 });
-const config = @import("config");
 const root = @import("root.zig");
 
 const ROW_WIDTH = 545;
@@ -17,7 +19,9 @@ const DB = root.DB;
 
 pub fn main() !void {
     const allocator = std.heap.c_allocator;
-    std.debug.print("sqlite3 version: {s}\n", .{c.sqlite3_version});
+    if (config.debug) {
+        std.debug.print("sqlite3 version: {s}\n", .{c.sqlite3_version});
+    }
 
     const screenWidth = 800;
     const screenHeight = 600;
